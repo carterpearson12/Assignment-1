@@ -1,0 +1,455 @@
+---
+title: "Assignment 1"
+author: "Carter Pearson"
+date: "August 5, 2015"
+output: html_document
+---
+Import packages
+```{r}
+library(ggplot2)
+
+```
+
+
+## Question 1 : Exploratory Analysis
+
+### Undercounting vs. Equipment type
+
+First, we need to read in the data set and take a look at a summary of this set
+```{r}
+georgia = read.csv("https://raw.githubusercontent.com/jgscott/STA380/master/data/georgia2000.csv")
+attach(georgia)
+summary(georgia)
+```
+
+To analyze the number of undercounts we create a new column called "undercounts", which is the difference of the ballots casted and the total number of votes that were counted 
+```{r}
+undercount = NA
+undercount = ballots - votes
+```
+
+Now to analyze the relationship between the number of undercounts and the equipment type was used, we first convert our equip column into a factor variable 
+```{r}
+equip_fact = factor(equip)
+```
+
+Then we examine the boxplots of 
+```{r}
+boxplot(undercount ~ equip)
+```
+
+Lastly we run a simple linear regression of equipment type on undercount
+```{r}
+undercount_model = lm(undercount ~ equip)
+undercount_model
+```
+
+The formula we get is:
+Undercount = 229.9 + (262.3O * OPTICAL) + (-173.4 * PAPER) + (2032.5 * PUNCH)
+
+So clearly it appears that having using a punch machine to submit ballots had a large affect on the number of undercounts.  To corroborate this hypothesis we run a summary on our model:
+```{r}
+summary(undercount_model)
+```
+As you can see, the only significant type factor variable is indeed PUNCH, so perhaps if we wanted to delve deeper into this analysis we might reconstruct the type factor variable be to be a binary variable (like IsPUNCH and NotPUNCH), as the other three types seem to have little predictive power on the number of undercounts
+
+### Equipment type vs. Poor Counties
+
+Now, we would like to determine if there's a relationship between the equipment type used in the county and whether or not that county was poor.  To accomplish this we examine a boxplot and a linear regression of these two variables:
+```{r}
+boxplot(poor ~ equip)
+modelPoor = lm(poor ~ equip)
+summary(modelPoor)
+```
+
+From examining both of these it appears that poor counties predominantly used paper ballots, and that many poor counties frequently used lever ballots as well.  Considering these two types of ballots are less technologically advanced (and thus probably less expensive), this seems to make sense. 
+
+Lastly, to tie everything back together, it appears that there is NOT an obvious undercounting biased against poor people, as punch ballots tended to be undercounted the most (by a significant amount) yet poor counties tended to use paper and lever ballots over punch ballots.
+
+### equipment type vs. minorities
+
+Our analysis of the relationship between equipment type and minorities will be quite similar to the previous anlaysis of equipment type vs. poor counties.  First we examine the boxplot and simple linear model of the two variables
+```{r}
+boxplot(perAA ~ equip)
+modelAA = lm(perAA ~ equip)
+summary(modelAA)
+```
+
+By examining these outputs it appears that counties with large minoirty populations used paper ballots most frequently, however not much more than lever and punch ballots.  Optical ballots were not used muched by these minority counties.  
+
+As with the previous example, we cannot draw the conclusion that there's a connection between largely minority counties and higher proportions of undercounted votes, as the majority of undercounted votes occurred with lever ballots yet minority counties did NOT predominantely use lever ballot systems
+
+## Question 2: Bootstrapping
+
+Import the necessary packages
+```{r}
+library(mosaic)
+library(fImport)
+library(foreach)
+```
+
+Define a helper function that will be used to calculte percent returns from a Yahoo Series. Source this to the console first, and then it will be available to use
+```{r}
+YahooPricesToReturns = function(series) {
+  mycols = grep('Adj.Close', colnames(series))
+  closingprice = series[,mycols]
+  N = nrow(closingprice)
+  percentreturn = as.data.frame(closingprice[2:N,]) / as.data.frame(closingprice[1:(N-1),]) - 1
+  mynames = strsplit(colnames(percentreturn), '.', fixed=TRUE)
+  mynames = lapply(mynames, function(x) return(paste0(x[1], ".PctReturn")))
+  colnames(percentreturn) = mynames
+  as.matrix(na.omit(percentreturn))
+}
+```
+
+Import the following ETF's that track US domestic equities, US Treasury Bonds, 
+Investement-grade corporate bonds, emerging-market equities, and Real Estate 
+```{r}
+mystocks = c("SPY", "TLY", "LQD","EEM","VNQ")
+myprices = yahooSeries(mystocks, from='2011-08-01', to='2015-08-01')
+```
+
+Compute the returns from the closing prices
+```{r}
+myreturns = YahooPricesToReturns(myprices)
+```
+
+Now we want to get a sense of the risk of each asset classs.  We will measure the risk by calculting Beta for each asset class.  Because SPY indexes the market, we will use this as an approximation for our linear models from which we will determine the respective betas.  The linear models are:
+```{r}
+model_TLT = lm(myreturns[,2] ~ myreturns[,1])
+model_LQD = lm(myreturns[,3] ~ myreturns[,1])
+model_EEM = lm(myreturns[,4] ~ myreturns[,1])
+model_VNQ = lm(myreturns[,5] ~ myreturns[,1])
+```
+
+Our beta for SPY = 1, and the rest of the betas are:
+```{r}
+coef(model_TLT) 
+coef(model_LQD)
+coef(model_EEM)
+coef(model_VNQ)
+```
+
+Generally, if beta = 0, then that asset has no correlation with the market
+           if beta < 0, then that asset tends to move in the opposite direction of the market
+           if 0 < beta < 1, then that asset moves with the market but is considered less risky
+           if beta > 1, then that asset moves with the marekt but is considered more risky
+
+We can also assess risk by simply examining the standard deviations of the daily returns of each asset class over the past 5 years:
+
+```{r}
+sd_SPY = sd(myreturns[,1])
+sd_TLT = sd(myreturns[,2])
+sd_LQD = sd(myreturns[,3])
+sd_EEM = sd(myreturns[,4])
+sd_VNQ = sd(myreturns[,5])
+
+sd_SPY
+sd_TLT
+sd_LQD
+sd_EEM 
+sd_VNQ
+```
+
+Now that we have some understanding of the level of risk for each asset class lets examine three portfolios that contain different combinations of holdings for these 5 asset classes
+
+The first allocation we will consider is a portfolio containing 20% of each of the 5 asset classes
+
+```{r}
+n_days = 20
+
+set.seed(12) # this sets the seed so that the output is reproducible
+
+sim_equal = foreach(i=1:5000, .combine='rbind') %do% {
+    totalwealth = 100000
+    weights = c(0.2, 0.2, 0.2, 0.2, 0.2)
+    holdings = weights * totalwealth
+    wealthtracker = rep(0, n_days) # tracks total wealth
+    for(today in 1:n_days) {
+      return.today = resample(myreturns, 1, orig.ids=FALSE)
+        holdings = holdings + holdings*return.today
+        totalwealth = sum(holdings)
+        holdings = weights * totalwealth
+        wealthtracker[today] = totalwealth
+    }
+    wealthtracker
+}
+
+#histogram of 5000 simulations of the performance of this asset mix over 4-weeks
+hist(sim_equal[,n_days], 25, main = 'Total Portfolio Value')
+
+# histogram of the Profits or Losses for each of the 5000 simulations  
+hist(sim_equal[,n_days]- 100000, main = 'Profits and Losses', xlab = 'Dollars')
+```
+
+
+One measure that many investors like to use is Value at Risk, which essentially  allows us to declare with some degree of confidence a threshold of losses for the portfolio or asset over some time frame. In this case we will calculate the Value at Risk at the 5% level over a 4-week period:
+
+```{r}
+abs(quantile(sim_equal[,n_days], 0.05) - 100000)
+```
+
+One way to interpret this is to say that we are 95% confident that the most money we will lose with this asset allocation is $5043.77 over 4-weeks of trading
+
+Now let's look at another portfolio with a safer asset allocation, say 30% each in UT treasury bills, government-grade corporate bonds and  real estate, and 5% each in emerging market equities and US domestic equities
+
+```{r}
+n_days = 20
+
+set.seed(12) # this sets the seed so that the output is reproducible
+
+safe = foreach(i=1:5000, .combine='rbind') %do% {
+    totalwealth = 100000
+    weights = c(0.05, 0.3, 0.3, 0.05, 0.3)
+    holdings = weights * totalwealth
+    wealthtracker = rep(0, n_days) # tracks total wealth
+    for(today in 1:n_days) {
+      return.today = resample(myreturns, 1, orig.ids=FALSE)
+        holdings = holdings + holdings*return.today
+        totalwealth = sum(holdings)
+        holdings = weights * totalwealth
+        wealthtracker[today] = totalwealth
+    }
+    wealthtracker
+}
+
+#histogram of 5000 simulations of the performance of this asset mix over 4-weeks
+hist(safe[,n_days], 25, main = 'Total Portfolio Value')
+
+# histogram of the Profits or Losses for each of the 5000 simulations  
+hist(safe[,n_days]- 100000, main = 'Profits and Losses', xlab = 'Dollars')
+
+# Value at Risk at the 5% level
+abs(quantile(safe[,n_days], 0.05) - 100000)
+```
+
+This asset allocation is clearly less risky, as this Value at Risk is $4360.02 and the spread of the profits and losses histogram is much more narrow
+
+Lastly, let's look at a riskier asset allocation, say 80% in emerging market equities and 20% in US domestic equities
+
+```{r}
+n_days = 20
+
+set.seed(12) # this sets the seed so that the output is reproducible
+
+risky = foreach(i=1:5000, .combine='rbind') %do% {
+    totalwealth = 100000
+    weights = c(0.2, 0, 0, 0.8, 0)
+    holdings = weights * totalwealth
+    wealthtracker = rep(0, n_days) # tracks total wealth
+    for(today in 1:n_days) {
+      return.today = resample(myreturns, 1, orig.ids=FALSE)
+        holdings = holdings + holdings*return.today
+        totalwealth = sum(holdings)
+        holdings = weights * totalwealth
+        wealthtracker[today] = totalwealth
+    }
+    wealthtracker
+}
+
+#histogram of 5000 simulations of the performance of this asset mix over 4-weeks
+hist(risky[,n_days], 25, main = 'Total Portfolio Value')
+
+# histogram of the Profits or Losses for each of the 5000 simulations  
+hist(risky[,n_days]- 100000, main = 'Profits and Losses', xlab = 'Dollars')
+
+# Value at Risk at the 5% level
+abs(quantile(risky[,n_days], 0.05) - 100000)
+```
+
+Clearly this is asset mix is much riskier, as the value at risk is $9,154.88 and the profit and losses histogram has a much greater spread
+
+Now we would like to compare these three different portfolios side by side, so below are all of their histograms and value at risks side by side:
+
+```{r}
+# Total Portfolio Values
+hist(sim_equal[,n_days], 25, main = 'Total Equal Portfolio Value')
+hist(safe[,n_days], 25, main = 'Total Safe Portfolio Value')
+hist(risky[,n_days], 25, main = 'Total Risky Portfolio Value')
+
+# Profit and Losses 
+hist(sim_equal[,n_days]- 100000, main = 'Equal Portfolio Profits and Losses', xlab = 'Dollars')
+hist(safe[,n_days]- 100000, main = 'Safe Portfolio Profits and Losses', xlab = 'Dollars')
+hist(risky[,n_days]- 100000, main = 'Risky Portolfio Profits and Losses', xlab = 'Dollars')
+
+# Value at Risk at the 5% level
+abs(quantile(sim_equal[,n_days], 0.05) - 100000)
+abs(quantile(safe[,n_days], 0.05) - 100000)
+abs(quantile(risky[,n_days], 0.05) - 100000)
+```
+
+
+
+## Question 3: K-Means and PCA
+
+### K-Means
+Read in the wine data and examine the structure and dimensions of the data
+```{r}
+wine = read.csv("https://raw.githubusercontent.com/jgscott/STA380/master/data/wine.csv")
+head(wine)
+names(wine)
+```
+
+Removes color and quality columns and then centers/scales the data
+```{r}
+wine_numeric = wine[,(1:11)]
+wine_scaled = scale(wine_numeric, center=TRUE, scale=TRUE) 
+```
+
+We will use these later to unscale the data
+```{r}
+mu = attr(wine_scaled, "scaled:center")
+sigma = attr(wine_scaled,"scaled:scale")
+```
+
+This runs kmeans with k = 2 and randomly selects the two centroids 50 times
+# How does kmeans decide which center is best? SSE's by cluster?
+```{r}
+cluster_color =  kmeans(wine_scaled, centers=2, nstart=50)
+```
+
+Examine the cluster centers and unscale these centers
+```{r}
+cluster_color$center
+cluster_color$center[1,]*sigma + mu
+cluster_color$center[2,]*sigma + mu
+```
+
+Which of our wines are in which clusters?
+```{r}
+head(which(cluster_color$cluster == 1))
+head(which(cluster_color$cluster == 2))
+```
+
+
+Looking a table of the proportions of our k-means cluster vs. the actual wine color reveals that our clustering algorithm did a pretty good job at predicting the actual color
+```{r}
+CLUSTERvsCOLOR_table = table(wine$color, cluster_color$cluster)
+prop.table(CLUSTERvsCOLOR_table, margin = 1)
+```
+
+
+Now let's see if we can use k-means on the 11 chemical properties of the wine to make some sort of prediction about the quality
+
+```{r}
+unique(wine$quality)
+```
+It appears that qualities range from 5-9, so perhaps the best method would be to see if we can sort by low, medium, or high qualities.  Thus we run K-means with 3 clusters:
+
+```{r}
+cluster_quality =  kmeans(wine_scaled, centers=3, nstart=50)
+```
+
+Unscale the cluster centers
+```{r}
+cluster_quality$center
+cluster_quality$center[1,]*sigma + mu
+cluster_quality$center[2,]*sigma + mu
+```
+
+Now lets examine a table of our three clusters vs. the wine quality
+```{r}
+CLUSTERvsQUALITY_table = table(wine$quality, cluster_quality$cluster)
+prop.table(CLUSTERvsQUALITY_table, margin = 1)
+```
+Unlike for color, it appears that K-means does not do a good job at seperating the quality
+
+If we attempt to rerun k-means with 5 clusters to match the number of quality ratings we get a similar unsatisfactory result
+```{r}
+cluster_quality =  kmeans(wine_scaled, centers=5, nstart=50)
+
+cluster_quality$center
+cluster_quality$center[1,]*sigma + mu
+cluster_quality$center[2,]*sigma + mu
+
+CLUSTERvsQUALITY_table = table(wine$quality, cluster_quality$cluster)
+prop.table(CLUSTERvsQUALITY_table, margin = 1)
+```
+
+
+### PCA
+
+Read in the wine data and examine the structure and dimensions of the data
+```{r}
+wine_all = read.csv("https://raw.githubusercontent.com/jgscott/STA380/master/data/wine.csv")
+head(wine)
+names(wine)
+```
+
+Removes color and quality columns
+```{r}
+wine = wine_all[,(1:11)]
+```
+
+
+Run PCA, scale.=TRUE scales the data
+```{r}
+wine_pca = prcomp(wine, scale.=TRUE)
+```
+
+
+Now we examine the results of our PCA
+```{r}
+wine_pca
+summary(wine_pca)
+```
+
+Because we scaled all of our data, the sum of the variance should be 1
+```{r}
+sum((wine_pca$sdev)^2)
+```
+
+Now we can look at how much variance is account for by each PC
+```{r}
+plot(wine_pca)
+```
+
+Let's get our scores and rotations
+```{r}
+rotation = wine_pca$rotation
+scores = wine_pca$x
+
+```
+
+Now let's plot the scores of PC1 and PC2 and apply color and quality ex post to see if there is any clustering with each of these features
+```{r}
+qplot(scores[,1], scores[,2], colour=wine_all$color, xlab='Component 1', ylab='Component 2')
+qplot(scores[,1], scores[,2], color=wine_all$quality, xlab='Component 1', ylab='Component 2')
+```
+
+It appears that our PCA allows us to determine the differences between whites and reds pretty well, however the same cannot be said about the quality level!
+
+### Question 4: Market Segmentation
+
+We would like to make some meaningful insights about Nutritional H20's twitter followers by analyzing their tweets over a week long period.  Perhaps by understanding common interests and behaviors of certain subsets of customers we can better understand their customer base and help drive revenues through targeted marketing efforts.  We start by reading in the twitter data, which categorizes the subject of each user's tweets (note: any given tweet can be about multiple categories)
+```{r}
+tweets = read.csv("https://raw.githubusercontent.com/jgscott/STA380/master/data/social_marketing.csv", row.names=1)
+tweets = as.data.frame(tweets)
+names(tweets)
+```
+
+Now we would like to remove a few of the most ambigious and meaningless categories from our dataset, specifically tweets characterized as chatter, uncategorized, spam, and adult
+
+```{r}
+tweets = tweets[,-c(1, 5, 35, 36)]
+```
+
+Now let's apply the K-means algorithm to determine see if there's any sort of clustering of our data, i.e. if some customers tend to tweet about the same topics in higher frequencies.  We arbitrarily pick 5 clusters to examine and scale the data for K means:
+```{r}
+tweets_scaled = scale(tweets)
+tweet_clusters = kmeans(tweets_scaled, centers=5, nstart=100)
+
+```
+
+?rbind
+Now let's examine the z-scores of our cluster centers to see if there are any sensible groupings of Nutritional H20's twitter followers
+```{r}
+tweet_clusters$centers[1,]
+tweet_clusters$centers[2,]
+tweet_clusters$centers[3,]
+tweet_clusters$centers[4,]
+tweet_clusters$centers[5,]
+```
+
+While these clusters are clearly not perfect, and you can arbitrarily pick a different K to cluster on, there are definitely some notable groupigns.  For example, the second cluster contains people who tweet about politics and news in high proportions.  Perhaps Nutritional H20 could devise a marketing scheme to target these customers during the primaries and upcoming presidential election!
+
